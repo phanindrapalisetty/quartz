@@ -72,7 +72,13 @@ def fetch_tab(session: dict, spreadsheet_id: str, tab_name: str) -> pl.DataFrame
 
     headers = [to_snake_case(h) for h in values[0]]
     rows = values[1:]
-    # Pad short rows, then build as dict of columns for polars
-    padded = [r + [""] * (len(headers) - len(r)) for r in rows]
+    # Pad short rows and replace all "" with None so Polars infers types cleanly
+    def clean(cell):
+        return None if cell == "" else cell
+
+    padded = [
+        [clean(cell) for cell in (r + [None] * (len(headers) - len(r)))]
+        for r in rows
+    ]
     cols = {headers[i]: [row[i] for row in padded] for i in range(len(headers))}
-    return pl.DataFrame(cols)
+    return pl.DataFrame(cols, infer_schema_length=None, strict=False)

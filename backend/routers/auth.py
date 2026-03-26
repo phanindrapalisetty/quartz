@@ -72,7 +72,7 @@ async def callback(code: str = None, error: str = None):
         "user_picture": user.get("picture"),
     })
 
-    return RedirectResponse(f"{settings.streamlit_url}?session_id={session_id}")
+    return RedirectResponse(f"{settings.frontend_url}?session_id={session_id}")
 
 
 @router.get("/me")

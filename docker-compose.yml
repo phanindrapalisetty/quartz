@@ -9,16 +9,18 @@ services:
       - .env
     environment:
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8000/auth/callback}
-      STREAMLIT_URL: ${STREAMLIT_URL:-http://localhost:8501}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+    volumes:
+      - ./backend:/app          # uvicorn --reload picks up Python changes instantly
 
   frontend:
     build: ./frontend
     ports:
-      - "8501:8501"
-    env_file:
-      - .env
+      - "5173:5173"
     environment:
-      API_URL: http://backend:8000          # server-side Python → backend (Docker internal)
-      PUBLIC_API_URL: http://localhost:8000  # browser links → backend (host port mapping)
+      VITE_BACKEND_URL: http://backend:8000
+    volumes:
+      - ./frontend:/app         # Vite HMR picks up React changes instantly
+      - /app/node_modules       # keep node_modules from the image, not the host
     depends_on:
       - backend
