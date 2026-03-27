@@ -1,0 +1,38 @@
+version: "3.9"
+
+# Production compose — nginx serves the React build and proxies API calls.
+# Port 8000 is NOT exposed externally; all traffic enters on port 80 via nginx.
+#
+# Usage:
+#   docker-compose -f docker-compose.prod.yml up -d --build
+#
+# Before first run:
+#   cp .env.prod.example .env.prod
+#   # fill in GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, FRONTEND_URL, SECRET_KEY
+
+services:
+
+  backend:
+    build:
+      context: ./backend
+      target: prod           # no --reload, single worker (in-memory sessions)
+    restart: unless-stopped
+    env_file:
+      - .env.prod
+    # No ports: — backend is only reachable via the Docker network (nginx proxy)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      target: prod           # multi-stage: Node builds → nginx serves
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
