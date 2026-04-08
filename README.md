@@ -25,9 +25,9 @@ Each user's data is isolated in their own in-memory DuckDB session. Tables from 
 ```
 Browser
   │
-  ├── :8501  Streamlit frontend  (Python, multipage)
+  ├── :3000  React frontend  (Vite + CSS)
   │              │
-  │              └── API_URL=http://backend:8000  (Docker internal)
+  │              └── VITE_API_URL=http://localhost:8000  (browser → backend)
   │
   └── :8000  FastAPI backend
                  │
@@ -37,22 +37,13 @@ Browser
                  └── Google Drive + Sheets API (per-user credentials)
 ```
 
-### Two-URL pattern
-
-Streamlit runs server-side Python inside Docker. It needs to talk to the FastAPI backend over Docker's internal network (`http://backend:8000`). But the browser's login button must point to the publicly reachable address (`http://localhost:8000`). Two separate env vars handle this:
-
-| Variable | Used by | Value |
-|---|---|---|
-| `API_URL` | Streamlit Python (server-side requests) | `http://backend:8000` |
-| `PUBLIC_API_URL` | Browser links (login button) | `http://localhost:8000` |
-
 ### Session model
 
-1. User clicks "Login with Google" → browser navigates to `PUBLIC_API_URL/auth/login`
+1. User clicks "Login with Google" → browser navigates to `VITE_API_URL/auth/login`
 2. FastAPI redirects to Google OAuth consent screen
 3. Google redirects back to `GOOGLE_REDIRECT_URI` (`/auth/callback`)
-4. Backend exchanges the code for an access token, creates a session in `SessionStore`, and redirects the browser to `STREAMLIT_URL?session_id=<id>`
-5. Streamlit stores the session ID in a browser cookie (7-day TTL, sliding window)
+4. Backend exchanges the code for an access token, creates a session in `SessionStore`, and redirects the browser to `FRONTEND_URL?session_id=<id>`
+5. React stores the session ID in a browser cookie (7-day TTL, sliding window)
 6. All subsequent API calls include `?session_id=<id>` as a query param
 7. Sessions expire after 7 days of inactivity
 
@@ -73,14 +64,14 @@ User selects spreadsheet + tab
 User writes SQL → POST /query/
   → duckdb_engine.query(session_id, sql)
   → returns rows, columns, execution_time_ms
-  → frontend renders with Polars + Streamlit dataframe
+  → frontend renders results in a styled table
 ```
 
 ## Stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | [Streamlit](https://streamlit.io) |
+| Frontend | [React](https://react.dev) + CSS (Vite) |
 | Backend | [FastAPI](https://fastapi.tiangolo.com) + [Uvicorn](https://www.uvicorn.org) |
 | Query engine | [DuckDB](https://duckdb.org) (in-memory, per session) |
 | Data layer | [Polars](https://pola.rs) |
@@ -120,10 +111,10 @@ Edit `.env`:
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
 GOOGLE_REDIRECT_URI=http://localhost:8000/auth/callback
-STREAMLIT_URL=http://localhost:8501
+FRONTEND_URL=http://localhost:3000
 ```
 
-The `API_URL` and `PUBLIC_API_URL` values are set in `docker-compose.yml` and generally don't need changing for local development.
+The `VITE_API_URL` value is set in `docker-compose.yml` and generally doesn't need changing for local development.
 
 ### 3. Run
 
@@ -131,7 +122,7 @@ The `API_URL` and `PUBLIC_API_URL` values are set in `docker-compose.yml` and ge
 docker-compose up --build
 ```
 
-- Frontend: http://localhost:8501
+- Frontend: http://localhost:3000
 - Backend API docs: http://localhost:8000/docs
 
 ## Environment variables
@@ -141,9 +132,8 @@ docker-compose up --build
 | `GOOGLE_CLIENT_ID` | — | OAuth client ID from GCP |
 | `GOOGLE_CLIENT_SECRET` | — | OAuth client secret from GCP |
 | `GOOGLE_REDIRECT_URI` | `http://localhost:8000/auth/callback` | Must match GCP exactly |
-| `STREAMLIT_URL` | `http://localhost:8501` | Where backend redirects after login |
-| `API_URL` | `http://backend:8000` | Backend URL for server-side Streamlit requests |
-| `PUBLIC_API_URL` | `http://localhost:8000` | Backend URL for browser-side links |
+| `FRONTEND_URL` | `http://localhost:3000` | Where backend redirects after login |
+| `VITE_API_URL` | `http://localhost:8000` | Backend URL for browser-side API calls |
 | `SECRET_KEY` | `change-me-in-production` | Used for internal signing |
 
 ## API reference
@@ -203,14 +193,21 @@ quartz/
 │   ├── main.py
 │   └── requirements.txt
 ├── frontend/
-│   ├── pages/
-│   │   ├── 1_Load.py          # Google Sheets picker + file upload
-│   │   └── 2_Query.py         # SQL editor + results
-│   ├── utils/
-│   │   └── session.py         # Cookie-based session persistence
-│   ├── app.py                 # Home page + login gate
+│   ├── src/
+│   │   ├── components/        # Reusable React components
+│   │   ├── pages/
+│   │   │   ├── Load.jsx       # Google Sheets picker + file upload
+│   │   │   └── Query.jsx      # SQL editor + results
+│   │   ├── utils/
+│   │   │   └── session.js     # Cookie-based session persistence
+│   │   ├── App.jsx            # Root component + routing
+│   │   └── main.jsx           # Entry point
+│   ├── public/
+│   ├── index.html
+│   ├── vite.config.js
+│   ├── package.json
 │   ├── Dockerfile
-│   └── requirements.txt
+│   └── .env.example
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
@@ -223,15 +220,14 @@ To deploy on a remote host (e.g. `myserver.com`), update the following:
 **`.env`**
 ```env
 GOOGLE_REDIRECT_URI=http://myserver.com:8000/auth/callback
-STREAMLIT_URL=http://myserver.com:8501
+FRONTEND_URL=http://myserver.com:3000
 ```
 
 **`docker-compose.yml`**
 ```yaml
 frontend:
   environment:
-    API_URL: http://backend:8000           # unchanged — internal Docker DNS
-    PUBLIC_API_URL: http://myserver.com:8000
+    VITE_API_URL: http://myserver.com:8000
 ```
 
 Also add `http://myserver.com:8000/auth/callback` to the **Authorized redirect URIs** in Google Cloud Console.
@@ -257,8 +253,8 @@ cd backend && pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 
 # Run frontend locally (outside Docker)
-cd frontend && pip install -r requirements.txt
-streamlit run app.py
+cd frontend && npm install
+npm run dev
 ```
 
 ## License
